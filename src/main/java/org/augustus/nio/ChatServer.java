@@ -4,10 +4,7 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.channels.SelectionKey;
-import java.nio.channels.Selector;
-import java.nio.channels.ServerSocketChannel;
-import java.nio.channels.SocketChannel;
+import java.nio.channels.*;
 import java.nio.charset.StandardCharsets;
 import java.util.Set;
 
@@ -59,6 +56,12 @@ public class ChatServer {
             }
         } catch (IOException e) {
             e.printStackTrace();
+        } finally {
+            try {
+                close(this.selector);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
     }
 
@@ -91,15 +94,36 @@ public class ChatServer {
 
     private String readMessageFormSocketChannel(SocketChannel socketChannel) throws IOException {
         this.readBuffer.clear();
-        while (socketChannel.read(readBuffer) != -1) {}
+        while (socketChannel.read(readBuffer) > 0) {}
+        this.readBuffer.flip();
         return String.valueOf(StandardCharsets.UTF_8.decode(readBuffer));
     }
 
-    private void forwardMessage(SocketChannel socketChannel, String message) {}
+    private void forwardMessage(SocketChannel socketChannel, String message) throws IOException {
+        Set<SelectionKey> selectionKeys = this.selector.keys();
+        for (SelectionKey selectionKey : selectionKeys) {
+            if (selectionKey.isValid() && !selectionKey.channel().equals(this.serverSocketChannel)) {
+                if (!selectionKey.channel().equals(socketChannel)) {
+                    this.writeBuffer.clear();
+                    this.writeBuffer.put(StandardCharsets.UTF_8.encode(socketChannel.socket().getPort() + ": " + message));
+                    this.writeBuffer.flip();
+                    SocketChannel channel = (SocketChannel) selectionKey.channel();
+                    if (this.writeBuffer.hasRemaining()) {
+                        channel.write(this.writeBuffer);
+                    }
+                }
+            }
+        }
+    }
 
     private void close(Closeable... closeables) throws IOException {
         for (Closeable closeable : closeables) {
             closeable.close();
         }
+    }
+
+    public static void main(String[] args) {
+        ChatServer chatServer = new ChatServer();
+        chatServer.start();
     }
 }
